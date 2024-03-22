@@ -1,3 +1,6 @@
+import os
+import mmap
+import stat
 import select
 import socket
 import http_config
@@ -61,7 +64,7 @@ class HttpConnect():
         self._removefd(socket)
         self.m_user_count -= 1
 
-    def init(self, client_socket, trigmode):
+    def init(self, client_socket, trigmode, root):
         # 实例变量初始化
         self.trigmode = trigmode
         self.client_socket = client_socket
@@ -72,14 +75,44 @@ class HttpConnect():
         self.m_read_buf = b''
         self.m_write_buf = b''
         self.m_method = http_config.METHOD.GET
-        self.m_url = 0
+        self.m_url = ""
         self.m_version = 0
+        self.cgi = 0
+        self.m_host = ""
+        # 请求 body 的大小
+        self.m_content_length = 0
+        # 请求数据
+        self.m_string = ""
+        # 表示是否是长连接
+        self.m_linger = False
+        # 服务根目录
+        self.doc_root = root
+        # 请求资源文件的属性
+        self.m_file_stat = None
+        # 请求资源文件内存映射对象
+        self.m_file_mmap = None
         # 添加事件监控
         self._addfd(socket=client_socket, one_shot=True, trigmode=trigmode)
         # 记录总的客户端连接数
         self.m_user_count += 1
         # http 解析主状态机的初始状态
         self.m_check_state = http_config.CHECK_STATE.CHECK_STATE_REQUESTLINE
+
+    def _get_line(self):
+        """获取一行的接收数据.
+        
+        返回的每一行数据不包含 \r\n ,空行除外
+        """
+        text_bytes = b''
+        # 先处理空行的情况
+        if self.m_read_buf[self.m_start_line] == b'\r'[0] and self.m_read_buf[self.m_start_line + 1] == b'\n'[0]:
+            text = "\r\n"
+            return text
+        for idx in range(self.m_start_line, self.m_read_idx):
+            if self.m_read_buf[idx] == b'\r'[0] and self.m_read_buf[idx+1] == b'\n'[0]:
+                break
+            text_bytes = self.m_read_buf[self.m_start_line:self.m_start_line + idx]
+        return text_bytes.decode()
         
     def _parse_line(self):
         """解析一行的读取状态.
@@ -93,24 +126,152 @@ class HttpConnect():
                     # \r 是当前缓存最后一个字符，说明接收数据不完整，需要继续接收
                     return http_config.LINE_STATUS.LINE_OPEN
                 elif self.m_read_buf[self.m_checked_idx + 1] == b'\n'[0]:
-                    self.m_read_buf.replace(b'\r', b'\0', 1)
-                    self.m_read_buf.replace(b'\n', b'\0', 1)
                     self.m_checked_idx += 2
                     return http_config.LINE_STATUS.LINE_OK
                 return http_config.LINE_STATUS.LINE_BAD
             if tmp == b'\n'[0]:
                 if self.m_checked_idx > 1 and self.m_read_buf[self.m_checked_idx - 1] == b'\r'[0]:
-                    self.m_read_buf.replace(b'\r', b'\0', 1)
-                    self.m_read_buf.replace(b'\n', b'\0', 1)
                     self.m_checked_idx += 1
                     return http_config.LINE_STATUS.LINE_OK
+                return http_config.LINE_STATUS.LINE_BAD
+            self.m_checked_idx += 1
         return http_config.LINE_STATUS.LINE_OPEN
 
     def _parse_request_line(self, text):
         """解析请求行，获取请求方法，url，http版本等信息.
 
-        text: 表示一行的字节对象
+        text: 表示一行的字符串对象
         """
+        if " " not in text or "\t" not in text:
+            return http_config.HTTP_CODE.BAD_REQUEST
+        # 确定一行的分割符是 " " 还是 "\t"
+        separator = " " if " " in text else "\t"
+        line_elems_original = text.split(separator)
+        # 去掉分割后列表中的分割符
+        line_elems = [item for item in line_elems_original if item != separator]
+        if line_elems[0] == "GET":
+            self.m_method = http_config.METHOD.GET
+        elif line_elems[0] == "POST":
+            self.m_method = http_config.METHOD.POST
+            self.cgi = 1
+        else:
+            return http_config.HTTP_CODE.BAD_REQUEST
+        if line_elems[-1] != "HTTP/1.1":
+            return http_config.HTTP_CODE.BAD_REQUEST
+        self.m_version = line_elems[-1]
+        self.m_url = line_elems[1]
+        # 如果有协议头，去掉协议头
+        if "http://" in self.m_url:
+            self.m_url = self.m_url[7:]
+        if "https://" in self.m_url:
+            self.m_url = self.m_url[8:]
+        if "/" not in self.m_url:
+            return http_config.HTTP_CODE.BAD_REQUEST
+        # url 更新为第一次 / 及后面的内容
+        tmp = self.m_url.split("/")
+        tmp[0] = ""
+        self.m_url = "/".join(tmp)
+        # 当 url 为 / 时，显示 judge.html
+        if self.m_url == "/":
+            self.m_url += "judge.html"
+        self.m_check_state = http_config.CHECK_STATE.CHECK_STATE_HEADER
+        # 返回请求不完整状态码
+        return http_config.HTTP_CODE.NO_REQUEST
+
+    def _parse_headers(self, text):
+        """解析请求头.
+
+        text: 表示一行的字符串对象
+        """
+        if text == "\r\n":
+            # 空行
+            if self.m_content_length != 0:
+                # POST 请求
+                self.m_check_state = http_config.CHECK_STATE.CHECK_STATE_CONTENT
+                return http_config.HTTP_CODE.NO_REQUEST
+            # GET 请求
+            return http_config.HTTP_CODE.GET_REQUEST
+        elif "Connection:" in text and "keep-alive" in text:
+            self.m_linger = True
+        elif "Connect-length:" in text:
+            separator = " " if " " in text else "\t"
+            self.m_content_length = int(text[15:].replace(separator, ""))
+        elif "Host:" in text:
+            separator = " " if " " in text else "\t"
+            self.m_host = text[5:].replace(separator, "")
+        else:
+            pass
+            # TODO log
+        return http_config.HTTP_CODE.NO_REQUEST
+
+    def _parse_content(self):
+        """解析消息体.
+        
+        text: 表示消息体的内容
+        """
+        if self.m_read_idx >= self.m_content_length + self.m_checked_idx:
+            # 读 buffer 中已经包含了消息体
+            m_string_bytes = self.m_read_buf[self.m_start_line:self.m_start_line + self.m_content_length]
+            self.m_string = m_string_bytes.decode()
+            return http_config.HTTP_CODE.GET_REQUEST
+        return http_config.HTTP_CODE.NO_REQUEST
+
+    def _do_request(self):
+        """数据接收完成开始处理请求.
+
+        """
+        # 请求的文件在服务器上的路径
+        m_real_file = ""
+        # 提取请求url中，最右 / 以及后面的字符串
+        p = "/{0}".format(self.m_url.rsplit("/", 1)[-1])
+        if self.cgi == 1 and p[1] == "2":
+            # 登录校验
+            # 1. 从请求数据提取用户名和密码 (user=name&password=12121)
+            user_name = self.m_string.split("&")[0].split("=")[-1].rstrip()
+            password = self.m_string.split("&")[1].split("=")[-1].rstrip()
+            # 2. 校验用户名和密码
+            if "TODO": # success
+                m_real_file = os.path.join(self.doc_root, "welcome.html")
+            else:
+                m_real_file = os.path.join(self.doc_root, "logError.html")
+        elif self.cgi == 1 and p[1] == "3":
+            # 注册校验
+            # 1. 从请求数据提取用户名和密码 (user=name&password=12121)
+            user_name = self.m_string.split("&")[0].split("=")[-1].rstrip()
+            password = self.m_string.split("&")[1].split("=")[-1].rstrip()
+            # 2. 检查是否已经注册，已经注册返回注册错误页面
+            if "TODO": # 已经注册
+                m_real_file = os.path.join(self.doc_root, "registerError.html")
+            else:
+                # TODO 插入新的用户
+                if "TODO": # 插入成功
+                    m_real_file = os.path.join(self.doc_root, "log.html")
+                else:
+                    m_real_file = os.path.join(self.doc_root, "registerError.html")
+        elif p[1] == "0":
+            m_real_file = os.path.join(self.doc_root, "register.html")
+        elif p[1] == "1":
+            m_real_file = os.path.join(self.doc_root, "log.html")
+        elif p[1] == "5":
+            m_real_file = os.path.join(self.doc_root, "picture.html")
+        elif p[1] == "6":
+            m_real_file = os.path.join(self.doc_root, "video.html")
+        elif p[1] == "7":
+            m_real_file = os.path.join(self.doc_root, "fans.html")
+        else:
+            m_real_file = os.path.join(self.doc_root, self.m_url[1:])
+        try:
+            self.m_file_stat = os.stat(m_real_file)
+        except Exception:
+            return http_config.HTTP_CODE.NO_RESOURCE
+        if not (self.m_file_stat.st_mode & stat.S_IROTH):
+            return http_config.HTTP_CODE.FORBIDDEN_REQUEST
+        if stat.S_ISDIR(self.m_file_stat.st_mode):
+            return http_config.HTTP_CODE.BAD_REQUEST
+        # 开始文件内存映射
+        with open(m_real_file, "r+b") as f:
+            self.m_file_mmap = mmap.mmap(f.fileno(), self.m_file_stat.st_size, flags=mmap.MAP_PRIVATE, prot=mmap.PROT_READ)
+        return http_config.HTTP_CODE.FILE_REQUEST
 
     def _process_read(self):
         """读和处理请求报文.
@@ -118,6 +279,31 @@ class HttpConnect():
         """
         line_status = http_config.LINE_STATUS.LINE_OK
         ret = http_config.HTTP_CODE.NO_REQUEST
+        text = ""
+        while (self.m_check_state == http_config.CHECK_STATE.CHECK_STATE_CONTENT and line_status == http_config.LINE_STATUS.LINE_OK) or self._parse_line() == http_config.LINE_STATUS.LINE_OK:
+            if self.m_check_state != http_config.CHECK_STATE.CHECK_STATE_CONTENT:
+                # 处理请求行和请求头阶段需要获取每一行处理的数据
+                text = self._get_line()
+                self.m_start_line = self.m_checked_idx
+            if self.m_check_state == http_config.CHECK_STATE.CHECK_STATE_REQUESTLINE:
+                ret = self._parse_request_line(text)
+                if ret == http_config.HTTP_CODE.BAD_REQUEST:
+                    return http_config.HTTP_CODE.BAD_REQUEST
+            elif self.m_check_state == http_config.CHECK_STATE.CHECK_STATE_HEADER:
+                ret = self._parse_headers(text)
+                if ret == http_config.HTTP_CODE.BAD_REQUEST:
+                    return http_config.HTTP_CODE.BAD_REQUEST
+                elif ret == http_config.HTTP_CODE.GET_REQUEST:
+                    # 解析完 GET 请求，开始处理
+                    return self._do_request()
+            elif self.m_check_state == http_config.CHECK_STATE.CHECK_STATE_CONTENT:
+                ret = self._parse_content()
+                if ret == http_config.HTTP_CODE.GET_REQUEST:
+                    return self._do_request()
+                line_status = http_config.LINE_STATUS.LINE_OPEN
+            else:
+                return http_config.HTTP_CODE.INTERNAL_ERROR
+        return http_config.HTTP_CODE.NO_REQUEST
 
     def _read_by_lt_mode(self):
         """LT模式读取数据.
@@ -129,7 +315,7 @@ class HttpConnect():
         else:
             # 客户端连接关闭
             return False
-        # 更新当前客户端已读字节数
+        # 更新当前客户端已读字符数
         self.m_read_idx += len(chunk)
         return True
 
