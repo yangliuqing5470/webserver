@@ -72,6 +72,7 @@ class HttpConnect():
         self.m_checked_idx = 0
         self.m_read_idx = 0
         self.m_write_idx = 0
+        self.bytes_to_send = 0
         self.m_read_buf = b''
         self.m_write_buf = b''
         self.m_method = http_config.METHOD.GET
@@ -193,7 +194,7 @@ class HttpConnect():
             return http_config.HTTP_CODE.GET_REQUEST
         elif "Connection:" in text and "keep-alive" in text:
             self.m_linger = True
-        elif "Connect-length:" in text:
+        elif "Content-Length:" in text:
             separator = " " if " " in text else "\t"
             self.m_content_length = int(text[15:].replace(separator, ""))
         elif "Host:" in text:
@@ -273,6 +274,11 @@ class HttpConnect():
             self.m_file_mmap = mmap.mmap(f.fileno(), self.m_file_stat.st_size, flags=mmap.MAP_PRIVATE, prot=mmap.PROT_READ)
         return http_config.HTTP_CODE.FILE_REQUEST
 
+    def _ummap(self):
+        if self.m_file_mmap is not None:
+            self.m_file_mmap.close()
+            self.m_file_mmap = None
+
     def _process_read(self):
         """读和处理请求报文.
 
@@ -351,3 +357,119 @@ class HttpConnect():
         else:
             # ET 触发模式读取
             return self._read_by_et_mode()
+
+    def write(self):
+        if self.bytes_to_send == 0:
+            self._modityfd(self.client_socket, select.EPOLLIN, self.trigmode)
+            self.init(self.client_socket, self.trigmode, self.doc_root)
+            return True
+        while True:
+            try:
+                temp = self.client_socket.send(self.m_write_buf[self.bytes_to_send:])
+            except socket.error as e:
+                if e.errno == socket.EAGAIN:
+                    self._modityfd(self.client_socket, select.EPOLLOUT, self.trigmode)
+                    return True
+                self._ummap()
+                return False
+            self.bytes_to_send -= temp
+            if self.bytes_to_send <= 0:
+                self._ummap()
+                self._modityfd(self.client_socket, select.EPOLLIN, self.trigmode)
+                if self.m_linger:
+                    self.init(self.client_socket, self.trigmode, self.doc_root)
+                    return True
+                else:
+                    return False
+
+    def _add_response(self, format: str):
+        if self.m_write_idx > http_config.buffer["write_buffer_size"]:
+            return False
+        format_bytes = format.encode()
+        if len(format_bytes) >= http_config.buffer["write_buffer_size"] - 1 - self.m_write_idx:
+            return False
+        self.m_write_buf += format_bytes
+        self.m_write_idx += len(format_bytes)
+        return True
+    
+    def _add_status_line(self, status, title):
+        return self._add_response("HTTP/1.1 {0} {1}\r\n".format(status, title))
+
+    def _add_content_length(self, content_len):
+        return self._add_response("Content-Length: {0}\r\n".format(content_len))
+
+    def _add_content_type(self):
+        return self._add_response("Content-Type: text/html\r\n")
+
+    def _add_linger(self):
+        if self.m_linger:
+            return self._add_response("Connection: keep-alive\r\n")
+        else:
+            return self._add_response("Connection: close\r\n")
+
+    def _add_content(self, content):
+        return self._add_response(content)
+
+    def _add_blank_line(self):
+        return self._add_response("\r\n")
+
+    def _add_headers(self, content_len):
+        if not self._add_content_length(content_len):
+            return False
+        if not self._add_content_type():
+            return False
+        if not self._add_linger():
+            return False
+        if not self._add_blank_line():
+            return False
+        return True
+
+    def _process_write(self, http_code):
+        if http_code == http_config.HTTP_CODE.INTERNAL_ERROR:
+            if not self._add_status_line(500, http_config.response_message["error_500_title"]):
+                return False
+            if not self._add_headers(len(http_config.response_message["error_500_form"].encode())):
+                return False
+            if not self._add_content(http_config.response_message["error_500_form"]):
+                return False
+        elif http_code == http_config.HTTP_CODE.BAD_REQUEST or http_code == http_code.HTTP_CODE.NO_RESOURCE:
+            if not self._add_status_line(404, http_config.response_message["error_404_title"]):
+                return False
+            if not self._add_headers(len(http_config.response_message["error_404_form"].encode())):
+                return False
+            if not self._add_content(http_config.response_message["error_404_form"]):
+                return False
+        elif http_code == http_config.HTTP_CODE.FORBIDDEN_REQUEST:
+            if not self._add_status_line(403, http_config.response_message["error_403_title"]):
+                return False
+            if not self._add_headers(len(http_config.response_message["error_403_form"].encode())):
+                return False
+            if not self._add_content(http_config.response_message["error_403_form"]):
+                return False
+        elif http_code == http_config.HTTP_CODE.FILE_REQUEST:
+            if not self._add_status_line(200, http_config.response_message["ok_200_title"]):
+                return False
+            if self.m_file_stat and self.m_file_stat.st_size != 0:
+                self.m_write_buf = self.m_write_buf + self.m_file_mmap.read() if self.m_file_mmap else self.m_write_buf
+                self.bytes_to_send = self.m_write_idx + self.m_file_stat.st_size
+                return True
+            else:
+                ok_string = "<html><body></body></html>"
+                if not self._add_headers(len(ok_string.encode())):
+                    return False
+                if not self._add_content(ok_string):
+                    return False
+        else:
+            return False
+        self.bytes_to_send = self.m_write_idx
+        return True
+
+    def process(self):
+        read_ret = self._process_read()
+        if read_ret == http_config.HTTP_CODE.NO_REQUEST:
+            self._modityfd(self.client_socket, select.EPOLLIN, self.trigmode)
+            return
+        write_ret = self._process_write(read_ret)
+        if not write_ret:
+            self.close_connection(self.client_socket)
+        self._modityfd(self.client_socket, select.EPOLLOUT, self.trigmode)

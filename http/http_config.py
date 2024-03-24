@@ -4,6 +4,7 @@ import enum
 
 buffer = {
     "read_buffer_size": 2048,
+    "write_buffer_size": 1024
 }
 # http 支持的方法集合
 class METHOD(enum.Enum):
