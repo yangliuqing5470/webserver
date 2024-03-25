@@ -111,7 +111,16 @@ class WebServer():
         """处理新的客户端连接事件.
         
         """
-        pass
+        if self.m_listentrigmode == 0:
+            # LT mode
+            client_socket, client_address = self.m_listen_socket.accept()
+            if http_connect.HttpConnect.m_user_count >= MAX_FD:
+                self.utils.show_error(client_socket, "Internal server busy")
+                return False
+            self.timer(client_socket, client_address)
+        else:
+            # ET mode
+            pass
 
     def deal_signal(self):
         pass

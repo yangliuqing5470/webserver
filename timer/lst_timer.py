@@ -167,6 +167,10 @@ class Utils():
     def addsig(self, signum, handler):
         signal.signal(signum, handler)
 
+    def show_error(self, socket, info: str):
+        socket.send(info.encode())
+        socket.close()
+
 
 def cb_func(m_epollfd, client_data):
     m_epollfd.unregister(client_data.socket)
