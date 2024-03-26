@@ -171,6 +171,10 @@ class Utils():
         socket.send(info.encode())
         socket.close()
 
+    def timer_handler(self):
+        self.m_sorted_timer_list.tick()
+        signal.alarm(self.m_timeslot)
+
 
 def cb_func(m_epollfd, client_data):
     m_epollfd.unregister(client_data.socket)

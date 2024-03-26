@@ -1,5 +1,6 @@
 import os
 import mmap
+import logging
 import stat
 import select
 import socket
@@ -9,6 +10,7 @@ import http_config
 class HttpConnect():
     m_epollfd = None
     m_user_count = 0
+    m_database = None
 
     def _socket_to_fd(self, socket):
         """获取socket对象的文件描述符.
@@ -98,6 +100,12 @@ class HttpConnect():
         self.m_user_count += 1
         # http 解析主状态机的初始状态
         self.m_check_state = http_config.CHECK_STATE.CHECK_STATE_REQUESTLINE
+        # 0表示当前的请求是读，1表示当前的请求是写(reactor模式)
+        self.m_state = 0
+        # 0表示不删除定时器，1表示删除定时器(reactor模式)
+        self.timer_flag = 0
+        # 0表示当前读或者写操作未开始，1表示当前读写操作完成(reactor模式)
+        self.improv = 0
 
     def _get_line(self):
         """获取一行的接收数据.
@@ -201,8 +209,7 @@ class HttpConnect():
             separator = " " if " " in text else "\t"
             self.m_host = text[5:].replace(separator, "")
         else:
-            pass
-            # TODO log
+            logging.info("Unknow header!!!")
         return http_config.HTTP_CODE.NO_REQUEST
 
     def _parse_content(self):
@@ -231,7 +238,7 @@ class HttpConnect():
             user_name = self.m_string.split("&")[0].split("=")[-1].rstrip()
             password = self.m_string.split("&")[1].split("=")[-1].rstrip()
             # 2. 校验用户名和密码
-            if "TODO": # success
+            if self.m_database and self.m_database.query(user_name) == password: # success
                 m_real_file = os.path.join(self.doc_root, "welcome.html")
             else:
                 m_real_file = os.path.join(self.doc_root, "logError.html")
@@ -241,11 +248,10 @@ class HttpConnect():
             user_name = self.m_string.split("&")[0].split("=")[-1].rstrip()
             password = self.m_string.split("&")[1].split("=")[-1].rstrip()
             # 2. 检查是否已经注册，已经注册返回注册错误页面
-            if "TODO": # 已经注册
+            if self.m_database and self.m_database.query(user_name): # 已经注册
                 m_real_file = os.path.join(self.doc_root, "registerError.html")
             else:
-                # TODO 插入新的用户
-                if "TODO": # 插入成功
+                if self.m_database and self.m_database.register(user_name, password):
                     m_real_file = os.path.join(self.doc_root, "log.html")
                 else:
                     m_real_file = os.path.join(self.doc_root, "registerError.html")
