@@ -159,7 +159,7 @@ class Utils():
         m_epollfd.register(socket, events, data)
         socket.setblocking(False)
 
-    def sig_handler(self, sig):
+    def sig_handler(self, sig, _):
         if self.m_pipefd_write is None:
             return
         self.m_pipefd_write.send(str(sig).encode())

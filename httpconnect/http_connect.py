@@ -4,7 +4,7 @@ import logging
 import stat
 import select
 import socket
-import http_config
+import httpconnect.http_config as http_config  # type: ignore
 
 
 class HttpConnect():
@@ -40,14 +40,14 @@ class HttpConnect():
         if one_shot:
             events |= select.EPOLLONESHOT
         data = self._socket_to_fd(socket)
-        self.m_epollfd.register(socket, events, data)
+        self.m_epollfd.register(socket, events, data)  # type: ignore
         socket.setblocking(False)
 
     def _removefd(self, socket):
         """删除内核事件监控中的socket.
 
         """
-        self.m_epollfd.unregister(socket)
+        self.m_epollfd.unregister(socket)  # type: ignore
 
     def _modityfd(self, socket, event, trigmode):
         """修改socket监听的事件.
@@ -60,7 +60,7 @@ class HttpConnect():
         else:
             events = event | select.EPOLLRDHUP | select.EPOLLONESHOT
         data = self._socket_to_fd(socket)
-        self.m_epollfd.modify(socket, events, data)
+        self.m_epollfd.modify(socket, events, data)  # type: ignore
 
     def close_connection(self, socket):
         self._removefd(socket)
