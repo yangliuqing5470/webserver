@@ -1,4 +1,5 @@
 import time
+import logging
 import select
 import signal
 from httpconnect.http_connect import HttpConnect
@@ -127,6 +128,12 @@ class Utils():
         self.m_timeslot = timeslot
         self.m_pipefd_write = None
         self.m_sorted_timer_list = SortTimerList()
+        self.signal_docstring_map = {
+            signal.SIGPIPE: "SIGPIPE",
+            signal.SIGALRM: "SIGALRM",
+            signal.SIGTERM: "SIGTERM",
+            signal.SIGINT: "SIGINT"
+        }
 
     def _socket_to_fd(self, socket):
         """获取socket对象的文件描述符.
@@ -163,6 +170,7 @@ class Utils():
         if self.m_pipefd_write is None:
             return
         self.m_pipefd_write.send(str(sig).encode())
+        logging.info("Capture signal num {0}".format(self.signal_docstring_map.get(sig, sig)))
 
     def addsig(self, signum, handler):
         signal.signal(signum, handler)

@@ -95,6 +95,7 @@ class WebServer():
         utils.addsig(signal.SIGPIPE, signal.SIG_IGN)
         utils.addsig(signal.SIGALRM, utils.sig_handler)
         utils.addsig(signal.SIGTERM, utils.sig_handler)
+        utils.addsig(signal.SIGINT, utils.sig_handler)
         signal.alarm(TIMESLOT)
         self.utils = utils
         self.m_pipefd_0 = m_pipefd_0
@@ -109,6 +110,7 @@ class WebServer():
         timer_node.expire = cur + 3 * TIMESLOT      # type: ignore
         self.users_timer[fd].utiltimer = timer_node  # type: ignore
         self.utils.m_sorted_timer_list.add_timer(timer_node)
+        logging.info("Current client number {0}".format(http_connect.HttpConnect.m_user_count))
 
     def adjust_timer(self, timer):
         """如果在过期时间内有数据，则将定时器值往后延3个单位，并调整有序定时器链表.
@@ -155,7 +157,7 @@ class WebServer():
         signal_value = int(chunk.decode())
         if signal_value == signal.SIGALRM:
             self.m_timeout = True
-        elif signal_value == signal.SIGTERM:
+        elif signal_value == signal.SIGTERM or signal_value == signal.SIGINT:
             self.m_stop_server = True
         return True
 

@@ -64,7 +64,7 @@ class HttpConnect():
 
     def close_connection(self, socket):
         self._removefd(socket)
-        self.m_user_count -= 1
+        HttpConnect.m_user_count -= 1
 
     def init(self, client_socket, trigmode, root):
         # 实例变量初始化
@@ -97,7 +97,7 @@ class HttpConnect():
         # 添加事件监控
         self._addfd(socket=client_socket, one_shot=True, trigmode=trigmode)
         # 记录总的客户端连接数
-        self.m_user_count += 1
+        HttpConnect.m_user_count += 1
         # http 解析主状态机的初始状态
         self.m_check_state = http_config.CHECK_STATE.CHECK_STATE_REQUESTLINE
         # 0表示当前的请求是读，1表示当前的请求是写(reactor模式)

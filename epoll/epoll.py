@@ -1,5 +1,4 @@
 import math
-import select
 import selectors
 
 
@@ -20,8 +19,6 @@ class MyEpollSelector(selectors.EpollSelector):
 
     def register(self, fileobj, events, data=None):
         key = selectors.SelectorKey(fileobj, self._fileobj_lookup(fileobj), events, data)
-        if key.fd in self._fd_to_key:
-            raise KeyError("{!r} (FD {}) is already registered".format(fileobj, key.fd))
         self._fd_to_key[key.fd] = key
 
         poller_events = 0
