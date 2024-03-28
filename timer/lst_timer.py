@@ -5,7 +5,7 @@ import signal
 from httpconnect.http_connect import HttpConnect
 
 
-class ClientData:
+class UserData:
     def __init__(self):
         self.address = None
         self.socket = None
@@ -104,7 +104,7 @@ class SortTimerList():
         utiltimer.prev.next = utiltimer.next
         utiltimer.next.prev = utiltimer.prev
 
-    def tick(self):
+    def tick(self, m_epollfd):
         """每个定时信号SIGALRM被触发，此函数被调用一次.
 
         找到过期的定时器处理
@@ -117,13 +117,14 @@ class SortTimerList():
             if cur < tmp.expire:
                 break
             # 执行定时器回调函数
-            tmp.cb_func(tmp.user_data)
+            tmp.cb_func(m_epollfd, tmp.user_data)
             self.head = tmp.next
             if self.head is not None:
                 self.head.prev = None
             tmp = self.head
 
 class Utils():
+    m_epollfd = None
     def __init__(self, timeslot):
         self.m_timeslot = timeslot
         self.m_pipefd_write = None
@@ -180,7 +181,7 @@ class Utils():
         socket.close()
 
     def timer_handler(self):
-        self.m_sorted_timer_list.tick()
+        self.m_sorted_timer_list.tick(self.m_epollfd)
         signal.alarm(self.m_timeslot)
 
 

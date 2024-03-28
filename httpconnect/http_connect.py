@@ -70,6 +70,15 @@ class HttpConnect():
         # 实例变量初始化
         self.trigmode = trigmode
         self.client_socket = client_socket
+        # 服务根目录
+        self.doc_root = root
+        # 添加事件监控
+        self._addfd(socket=client_socket, one_shot=True, trigmode=trigmode)
+        # 记录总的客户端连接数
+        HttpConnect.m_user_count += 1
+        self._init()
+
+    def _init(self):
         self.m_start_line = 0
         self.m_checked_idx = 0
         self.m_read_idx = 0
@@ -88,16 +97,10 @@ class HttpConnect():
         self.m_string = ""
         # 表示是否是长连接
         self.m_linger = False
-        # 服务根目录
-        self.doc_root = root
         # 请求资源文件的属性
         self.m_file_stat = None
         # 请求资源文件内存映射对象
         self.m_file_mmap = None
-        # 添加事件监控
-        self._addfd(socket=client_socket, one_shot=True, trigmode=trigmode)
-        # 记录总的客户端连接数
-        HttpConnect.m_user_count += 1
         # http 解析主状态机的初始状态
         self.m_check_state = http_config.CHECK_STATE.CHECK_STATE_REQUESTLINE
         # 0表示当前的请求是读，1表示当前的请求是写(reactor模式)
@@ -367,11 +370,11 @@ class HttpConnect():
     def write(self):
         if self.bytes_to_send == 0:
             self._modityfd(self.client_socket, select.EPOLLIN, self.trigmode)
-            self.init(self.client_socket, self.trigmode, self.doc_root)
+            self._init()
             return True
         while True:
             try:
-                temp = self.client_socket.send(self.m_write_buf[self.bytes_to_send:])
+                temp = self.client_socket.send(self.m_write_buf[-self.bytes_to_send:])
             except socket.error as e:
                 if e.errno == socket.EAGAIN:
                     self._modityfd(self.client_socket, select.EPOLLOUT, self.trigmode)
@@ -383,7 +386,7 @@ class HttpConnect():
                 self._ummap()
                 self._modityfd(self.client_socket, select.EPOLLIN, self.trigmode)
                 if self.m_linger:
-                    self.init(self.client_socket, self.trigmode, self.doc_root)
+                    self._init()
                     return True
                 else:
                     return False

@@ -20,7 +20,7 @@ class WebServer():
         # 获取root文件夹路径
         self.m_root = os.path.join(os.getcwd(), "root")
         self.users = [http_connect.HttpConnect()] * MAX_FD
-        self.users_timer = [lst_timer.ClientData()] * MAX_FD
+        self.users_timer = [lst_timer.UserData()] * MAX_FD
         self.m_port = args["port"]
         self.m_user = args["user"]
         self.m_password = args["password"]
@@ -83,8 +83,9 @@ class WebServer():
         self.m_listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.m_listen_socket.bind(("0.0.0.0", self.m_port))
         self.m_listen_socket.listen(5)
-        utils = lst_timer.Utils(TIMESLOT)
         self.m_epollfd = epoll.MyEpollSelector()
+        lst_timer.Utils.m_epollfd = self.m_epollfd  # type: ignore
+        utils = lst_timer.Utils(TIMESLOT)
         utils.addfd(self.m_epollfd, self.m_listen_socket, False, self.m_listentrigmode)
         http_connect.HttpConnect.m_epollfd = self.m_epollfd  # type: ignore
         # m_pipefd_0：读端; m_pipefd_1: 写端
