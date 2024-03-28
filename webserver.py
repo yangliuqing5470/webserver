@@ -19,8 +19,6 @@ class WebServer():
     def __init__(self, args: dict):
         # 获取root文件夹路径
         self.m_root = os.path.join(os.getcwd(), "root")
-        self.users = [http_connect.HttpConnect()] * MAX_FD
-        self.users_timer = [lst_timer.UserData()] * MAX_FD
         self.m_port = args["port"]
         self.m_user = args["user"]
         self.m_password = args["password"]
@@ -36,6 +34,14 @@ class WebServer():
         self.m_timeout = False
         # 是否停服
         self.m_stop_server = False
+        self._init_users_and_users_timer()
+
+    def _init_users_and_users_timer(self):
+        self.users = []
+        self.users_timer = []
+        for _ in range(MAX_FD):
+            self.users.append(http_connect.HttpConnect())
+            self.users_timer.append(lst_timer.UserData())
 
     def _socket_to_fd(self, socket):
         """获取socket对象的文件描述符.
