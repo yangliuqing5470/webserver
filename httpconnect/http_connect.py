@@ -213,7 +213,7 @@ class HttpConnect():
             separator = " " if " " in text else "\t"
             self.m_host = text[5:].replace(separator, "")
         else:
-            logging.info("Unknow header!!!")
+            logging.debug("Unknow header!!!")
         return http_config.HTTP_CODE.NO_REQUEST
 
     def _parse_content(self):
@@ -282,7 +282,7 @@ class HttpConnect():
         # 开始文件内存映射
         with open(m_real_file, "r+b") as f:
             self.m_file_mmap = mmap.mmap(f.fileno(), self.m_file_stat.st_size, flags=mmap.MAP_PRIVATE, prot=mmap.PROT_READ)
-        logging.debug("Response file {0}".format(m_real_file))
+        logging.info("Response file {0}".format(m_real_file))
         return http_config.HTTP_CODE.FILE_REQUEST
 
     def _ummap(self):
@@ -335,9 +335,11 @@ class HttpConnect():
             self.m_read_buf += chunk
         else:
             # 客户端连接关闭
+            logging.error("Receive failed from socket {0} for client socket is closed".format(self.client_socket))
             return False
         # 更新当前客户端已读字符数
         self.m_read_idx += len(chunk)
+        logging.info("Receive from socket {0} is completed".format(self.client_socket))
         return True
 
     def _read_by_et_mode(self):
@@ -351,6 +353,7 @@ class HttpConnect():
                     self.m_read_buf += chunk
                 else:
                     # 客户端连接关闭
+                    logging.error("Receive failed from socket {0} for client socket is closed".format(self.client_socket))
                     return False
                 self.m_read_idx += len(chunk)
             except socket.error as e:
@@ -358,6 +361,7 @@ class HttpConnect():
                     # 数据读完
                     break
                 return False
+        logging.info("Receive from socket {0} is completed".format(self.client_socket))
         return True
 
     def read_once(self):
@@ -383,15 +387,17 @@ class HttpConnect():
                 temp = self.client_socket.send(self.m_write_buf[-self.bytes_to_send:])
             except socket.error as e:
                 if e.errno == socket.EAGAIN:
+                    logging.warning("Send buffer is full with socket {0}".format(self.client_socket))
                     self._modityfd(self.client_socket, select.EPOLLOUT, self.trigmode)
                     return True
                 self._ummap()
+                logging.error("Send to socket {0} with error {1}".format(self.client_socket, e))
                 return False
             self.bytes_to_send -= temp
             if self.bytes_to_send <= 0:
                 self._ummap()
                 self._modityfd(self.client_socket, select.EPOLLIN, self.trigmode)
-                logging.debug("Response write is completed")
+                logging.info("Send to socket {0} is completed".format(self.client_socket))
                 if self.m_linger:
                     self._init()
                     return True

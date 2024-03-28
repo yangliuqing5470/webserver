@@ -172,7 +172,7 @@ class Utils():
         if self.m_pipefd_write is None:
             return
         self.m_pipefd_write.send(str(sig).encode())
-        logging.info("Capture signal {0}".format(self.signal_docstring_map.get(sig, sig)))
+        logging.debug("Capture signal {0}".format(self.signal_docstring_map.get(sig, sig)))
 
     def addsig(self, signum, handler):
         signal.signal(signum, handler)
@@ -182,7 +182,7 @@ class Utils():
         socket.close()
 
     def timer_handler(self):
-        logging.info("Execute time handler (time tick).")
+        logging.debug("Execute time handler (time tick).")
         self.m_sorted_timer_list.tick(self.m_epollfd)
         signal.alarm(self.m_timeslot)
 
