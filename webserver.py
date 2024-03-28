@@ -100,6 +100,7 @@ class WebServer():
         signal.alarm(TIMESLOT)
         self.utils = utils
         self.m_pipefd_0 = m_pipefd_0
+        logging.info("Create listen socket {0} pipe read socket {1} and pipe write socket {2}".format(self.m_listen_socket, m_pipefd_0, m_pipefd_1))
 
     def timer(self, client_socket, client_address):
         fd = self._socket_to_fd(client_socket)
@@ -111,7 +112,6 @@ class WebServer():
         timer_node.expire = cur + 3 * TIMESLOT      # type: ignore
         self.users_timer[fd].utiltimer = timer_node  # type: ignore
         self.utils.m_sorted_timer_list.add_timer(timer_node)
-        logging.info("Current client number {0}".format(http_connect.HttpConnect.m_user_count))
 
     def adjust_timer(self, timer):
         """如果在过期时间内有数据，则将定时器值往后延3个单位，并调整有序定时器链表.
@@ -137,6 +137,7 @@ class WebServer():
                 self.utils.show_error(client_socket, "Internal server busy")
                 return False
             self.timer(client_socket, client_address)
+            logging.info("Get new client {0} and current client number {1}".format(client_socket, http_connect.HttpConnect.m_user_count))
         else:
             # ET mode
             while True:
@@ -148,6 +149,7 @@ class WebServer():
                     self.utils.show_error(client_socket, "Internal server busy")
                     break
                 self.timer(client_socket, client_address)
+                logging.info("Get new client {0} and current client number {1}".format(client_socket, http_connect.HttpConnect.m_user_count))
             return False
         return True
 
@@ -156,9 +158,10 @@ class WebServer():
         if not chunk:
             return False
         signal_value = int(chunk.decode())
-        if signal_value == signal.SIGALRM:
+        logging.info("Deal with signal {0}".format(self.utils.signal_docstring_map.get(signal_value, signal_value)))
+        if signal_value == signal.SIGALRM.value:
             self.m_timeout = True
-        elif signal_value == signal.SIGTERM or signal_value == signal.SIGINT:
+        elif signal_value == signal.SIGTERM.value or signal_value == signal.SIGINT.value:
             self.m_stop_server = True
         return True
 

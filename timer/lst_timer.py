@@ -117,6 +117,7 @@ class SortTimerList():
             if cur < tmp.expire:
                 break
             # 执行定时器回调函数
+            logging.info("Recycle client socket {0} and timer {1}".format(tmp.user_data.socket, tmp.__dict__))
             tmp.cb_func(m_epollfd, tmp.user_data)
             self.head = tmp.next
             if self.head is not None:
@@ -130,10 +131,10 @@ class Utils():
         self.m_pipefd_write = None
         self.m_sorted_timer_list = SortTimerList()
         self.signal_docstring_map = {
-            signal.SIGPIPE: "SIGPIPE",
-            signal.SIGALRM: "SIGALRM",
-            signal.SIGTERM: "SIGTERM",
-            signal.SIGINT: "SIGINT"
+            signal.SIGPIPE.value: "SIGPIPE",
+            signal.SIGALRM.value: "SIGALRM",
+            signal.SIGTERM.value: "SIGTERM",
+            signal.SIGINT.value: "SIGINT"
         }
 
     def _socket_to_fd(self, socket):
@@ -171,7 +172,7 @@ class Utils():
         if self.m_pipefd_write is None:
             return
         self.m_pipefd_write.send(str(sig).encode())
-        logging.info("Capture signal num {0}".format(self.signal_docstring_map.get(sig, sig)))
+        logging.info("Capture signal {0}".format(self.signal_docstring_map.get(sig, sig)))
 
     def addsig(self, signum, handler):
         signal.signal(signum, handler)
@@ -181,11 +182,13 @@ class Utils():
         socket.close()
 
     def timer_handler(self):
+        logging.info("Execute time handler (time tick).")
         self.m_sorted_timer_list.tick(self.m_epollfd)
         signal.alarm(self.m_timeslot)
 
 
 def cb_func(m_epollfd, client_data):
+    logging.info("Unregister client socket {0}".format(client_data.socket))
     m_epollfd.unregister(client_data.socket)
     client_data.socket.close()
     # 这里不是线程安全的
