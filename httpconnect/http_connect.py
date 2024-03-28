@@ -122,8 +122,8 @@ class HttpConnect():
             return text
         for idx in range(self.m_start_line, self.m_read_idx):
             if self.m_read_buf[idx] == b'\r'[0] and self.m_read_buf[idx+1] == b'\n'[0]:
+                text_bytes = self.m_read_buf[self.m_start_line:idx]
                 break
-            text_bytes = self.m_read_buf[self.m_start_line:self.m_start_line + idx]
         return text_bytes.decode()
         
     def _parse_line(self):
@@ -154,13 +154,14 @@ class HttpConnect():
 
         text: 表示一行的字符串对象
         """
-        if " " not in text or "\t" not in text:
+        if " " not in text and "\t" not in text:
             return http_config.HTTP_CODE.BAD_REQUEST
         # 确定一行的分割符是 " " 还是 "\t"
         separator = " " if " " in text else "\t"
         line_elems_original = text.split(separator)
         # 去掉分割后列表中的分割符
         line_elems = [item for item in line_elems_original if item != separator]
+        logging.debug("Parse request line list {0}".format(line_elems))
         if line_elems[0] == "GET":
             self.m_method = http_config.METHOD.GET
         elif line_elems[0] == "POST":
@@ -281,6 +282,7 @@ class HttpConnect():
         # 开始文件内存映射
         with open(m_real_file, "r+b") as f:
             self.m_file_mmap = mmap.mmap(f.fileno(), self.m_file_stat.st_size, flags=mmap.MAP_PRIVATE, prot=mmap.PROT_READ)
+        logging.debug("Response file {0}".format(m_real_file))
         return http_config.HTTP_CODE.FILE_REQUEST
 
     def _ummap(self):
@@ -299,13 +301,16 @@ class HttpConnect():
             if self.m_check_state != http_config.CHECK_STATE.CHECK_STATE_CONTENT:
                 # 处理请求行和请求头阶段需要获取每一行处理的数据
                 text = self._get_line()
+                logging.debug("Get one line text {0}".format(text))
                 self.m_start_line = self.m_checked_idx
             if self.m_check_state == http_config.CHECK_STATE.CHECK_STATE_REQUESTLINE:
                 ret = self._parse_request_line(text)
+                logging.debug("Parse request line ret {0}".format(ret))
                 if ret == http_config.HTTP_CODE.BAD_REQUEST:
                     return http_config.HTTP_CODE.BAD_REQUEST
             elif self.m_check_state == http_config.CHECK_STATE.CHECK_STATE_HEADER:
                 ret = self._parse_headers(text)
+                logging.debug("Parse headers ret {0}".format(ret))
                 if ret == http_config.HTTP_CODE.BAD_REQUEST:
                     return http_config.HTTP_CODE.BAD_REQUEST
                 elif ret == http_config.HTTP_CODE.GET_REQUEST:
@@ -313,6 +318,7 @@ class HttpConnect():
                     return self._do_request()
             elif self.m_check_state == http_config.CHECK_STATE.CHECK_STATE_CONTENT:
                 ret = self._parse_content()
+                logging.debug("Parse content ret {0}".format(ret))
                 if ret == http_config.HTTP_CODE.GET_REQUEST:
                     return self._do_request()
                 line_status = http_config.LINE_STATUS.LINE_OPEN
@@ -385,6 +391,7 @@ class HttpConnect():
             if self.bytes_to_send <= 0:
                 self._ummap()
                 self._modityfd(self.client_socket, select.EPOLLIN, self.trigmode)
+                logging.debug("Response write is completed")
                 if self.m_linger:
                     self._init()
                     return True
@@ -441,7 +448,7 @@ class HttpConnect():
                 return False
             if not self._add_content(http_config.response_message["error_500_form"]):
                 return False
-        elif http_code == http_config.HTTP_CODE.BAD_REQUEST or http_code == http_code.HTTP_CODE.NO_RESOURCE:
+        elif http_code == http_config.HTTP_CODE.BAD_REQUEST or http_code == http_config.HTTP_CODE.NO_RESOURCE:
             if not self._add_status_line(404, http_config.response_message["error_404_title"]):
                 return False
             if not self._add_headers(len(http_config.response_message["error_404_form"].encode())):
@@ -459,6 +466,7 @@ class HttpConnect():
             if not self._add_status_line(200, http_config.response_message["ok_200_title"]):
                 return False
             if self.m_file_stat and self.m_file_stat.st_size != 0:
+                self._add_headers(self.m_file_stat.st_size)
                 self.m_write_buf = self.m_write_buf + self.m_file_mmap.read() if self.m_file_mmap else self.m_write_buf
                 self.bytes_to_send = self.m_write_idx + self.m_file_stat.st_size
                 return True
@@ -474,11 +482,14 @@ class HttpConnect():
         return True
 
     def process(self):
+        logging.debug("Get request data {0}".format(self.m_read_buf.decode()))
         read_ret = self._process_read()
+        logging.debug("Process read ret {0}".format(read_ret))
         if read_ret == http_config.HTTP_CODE.NO_REQUEST:
             self._modityfd(self.client_socket, select.EPOLLIN, self.trigmode)
             return
         write_ret = self._process_write(read_ret)
+        logging.debug("Process write ret {0}".format(write_ret))
         if not write_ret:
             self.close_connection(self.client_socket)
         self._modityfd(self.client_socket, select.EPOLLOUT, self.trigmode)

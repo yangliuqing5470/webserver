@@ -189,9 +189,11 @@ class WebServer():
         else:
             # proactor
             if self.users[socketfd].read_once():
+                logging.debug("Read success from socket {0}".format(socket))
                 self.adjust_timer(util_timer)
                 self.m_thread_pool.append(self.users[socketfd], 0)
             else:
+                logging.error("Read failed from socket {0}".format(socket))
                 self.deal_timer(util_timer, socket)
 
     def deal_write(self, socket):
@@ -212,6 +214,7 @@ class WebServer():
         else:
             # proactor
             if self.users[socketfd].write():
+                logging.debug("Write success from socket {0}".format(socket))
                 self.adjust_timer(util_timer)
             else:
                 self.deal_timer(util_timer, socket)
@@ -220,6 +223,7 @@ class WebServer():
         logging.info("Start event loop.")
         while not self.m_stop_server:
             ready_events = self.m_epollfd.select()
+            logging.debug("Get ready events {0}".format(ready_events))
             for key, event in ready_events:
                 socket = key.fileobj
                 socketfd = key.data
