@@ -382,18 +382,21 @@ class HttpConnect():
             self._modityfd(self.client_socket, select.EPOLLIN, self.trigmode)
             self._init()
             return True
+        logging.info("Get need to send bytes size {0}".format(self.bytes_to_send))
+        have_send_bytes = 0
         while True:
             try:
                 temp = self.client_socket.send(self.m_write_buf[-self.bytes_to_send:])
             except socket.error as e:
                 if e.errno == socket.EAGAIN:
-                    logging.warning("Send buffer is full with socket {0}".format(self.client_socket))
+                    logging.warning("Send buffer is full with have send bytes {0} and socket {1}".format(have_send_bytes, self.client_socket))
                     self._modityfd(self.client_socket, select.EPOLLOUT, self.trigmode)
                     return True
                 self._ummap()
                 logging.error("Send to socket {0} with error {1}".format(self.client_socket, e))
                 return False
             self.bytes_to_send -= temp
+            have_send_bytes += temp
             if self.bytes_to_send <= 0:
                 self._ummap()
                 self._modityfd(self.client_socket, select.EPOLLIN, self.trigmode)
@@ -475,6 +478,7 @@ class HttpConnect():
                 self._add_headers(self.m_file_stat.st_size)
                 self.m_write_buf = self.m_write_buf + self.m_file_mmap.read() if self.m_file_mmap else self.m_write_buf
                 self.bytes_to_send = self.m_write_idx + self.m_file_stat.st_size
+                logging.info("Write response total bytes size {0}".format(self.bytes_to_send))
                 return True
             else:
                 ok_string = "<html><body></body></html>"
@@ -485,6 +489,7 @@ class HttpConnect():
         else:
             return False
         self.bytes_to_send = self.m_write_idx
+        logging.info("Write response total bytes size {0}".format(self.bytes_to_send))
         return True
 
     def process(self):

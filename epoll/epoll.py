@@ -33,23 +33,15 @@ class MyEpollSelector(selectors.EpollSelector):
             key = self._fd_to_key[self._fileobj_lookup(fileobj)]
         except KeyError:
             raise KeyError(f"{fileobj!r} is not registered") from None
-
-        changed = False
-        if events != key.events:
-            selector_events = 0
-            selector_events |= events
-            try:
-                self._selector.modify(key.fd, selector_events)
-            except:
-                super().unregister(fileobj)
-                raise
-            changed = True
-        if data != key.data:
-            changed = True
-
-        if changed:
-            key = key._replace(events=events, data=data)
-            self._fd_to_key[key.fd] = key
+        selector_events = 0
+        selector_events |= events
+        try:
+            self._selector.modify(key.fd, selector_events)
+        except:
+            super().unregister(fileobj)
+            raise
+        key = key._replace(events=events, data=data)
+        self._fd_to_key[key.fd] = key
         return key
 
     def select(self, timeout=None):
