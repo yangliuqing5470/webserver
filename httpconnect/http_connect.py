@@ -84,6 +84,7 @@ class HttpConnect():
         self.m_read_idx = 0
         self.m_write_idx = 0
         self.bytes_to_send = 0
+        self.have_send_bytes = 0
         self.m_read_buf = b''
         self.m_write_buf = b''
         self.m_method = http_config.METHOD.GET
@@ -383,20 +384,19 @@ class HttpConnect():
             self._init()
             return True
         logging.info("Get need to send bytes size {0}".format(self.bytes_to_send))
-        have_send_bytes = 0
         while True:
             try:
                 temp = self.client_socket.send(self.m_write_buf[-self.bytes_to_send:])
             except socket.error as e:
                 if e.errno == socket.EAGAIN:
-                    logging.warning("Send buffer is full with have send bytes {0} and socket {1}".format(have_send_bytes, self.client_socket))
+                    logging.warning("Send buffer is full with have send bytes {0} and socket {1}".format(self.have_send_bytes, self.client_socket))
                     self._modityfd(self.client_socket, select.EPOLLOUT, self.trigmode)
                     return True
                 self._ummap()
                 logging.error("Send to socket {0} with error {1}".format(self.client_socket, e))
                 return False
             self.bytes_to_send -= temp
-            have_send_bytes += temp
+            self.have_send_bytes += temp
             if self.bytes_to_send <= 0:
                 self._ummap()
                 self._modityfd(self.client_socket, select.EPOLLIN, self.trigmode)

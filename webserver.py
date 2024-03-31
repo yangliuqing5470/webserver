@@ -20,15 +20,9 @@ class WebServer():
         # 获取root文件夹路径
         self.m_root = os.path.join(os.getcwd(), "root")
         self.m_port = args["port"]
-        self.m_user = args["user"]
-        self.m_password = args["password"]
-        self.m_databasename = args["databasename"]
-        self.m_sql_num = args["sql_num"]
         self.m_thread_num = args["thread_num"]
-        self.m_log_write = args["log_write"]
         self.m_opt_linger = args["opt_linger"]
         self.m_trigmode = args["trigmode"]
-        self.m_close_log = args["close_log"]
         self.m_actormodel = args["actormodel"]
         # 定时器是否超时
         self.m_timeout = False
