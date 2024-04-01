@@ -58,7 +58,6 @@ class WebServer():
             return
         res, socket, util_timer = thread_result
         if res == 1:
-            logging.info("oooo!!!!!!!!!!!!!!!!!!!!!!!!!!!")
             self.adjust_timer(util_timer)
         else:
             self.deal_timer(util_timer, socket)
