@@ -52,6 +52,17 @@ class WebServer():
             raise ValueError("Invalid file descriptor: {}".format(fd))
         return fd
 
+    def _callback(self, future):
+        thread_result = future.result()
+        if thread_result is None:
+            return
+        res, socket, util_timer = thread_result
+        if res == 1:
+            logging.info("oooo!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            self.adjust_timer(util_timer)
+        else:
+            self.deal_timer(util_timer, socket)
+
     def trig_mode(self):
         if self.m_trigmode == 0:
             self.m_listentrigmode = 0
@@ -168,24 +179,15 @@ class WebServer():
     def deal_read(self, socket):
         socketfd = self._socket_to_fd(socket)
         util_timer = self.users_timer[socketfd].utiltimer
+        result = (socket, util_timer)
         if self.m_actormodel == 1:
             # reactor
-            self.adjust_timer(util_timer)
-            self.m_thread_pool.append(self.users[socketfd], 0)
-            # ???????
-            while True:
-                if self.users[socketfd].improv == 1:
-                    if self.users[socketfd].timer_flag == 1:
-                        self.deal_timer(util_timer, socket)
-                        self.users[socketfd].timer_flag = 0
-                    self.users[socketfd].improv = 0
-                    break
+            self.m_thread_pool.append(self.users[socketfd], 0, callback=self._callback, result=result)
         else:
             # proactor
             if self.users[socketfd].read_once():
                 logging.debug("Read success from socket {0}".format(socket))
-                self.adjust_timer(util_timer)
-                self.m_thread_pool.append(self.users[socketfd], 0)
+                self.m_thread_pool.append(self.users[socketfd], 0, callback=self._callback, result=result)
             else:
                 logging.error("Read failed from socket {0}".format(socket))
                 self.deal_timer(util_timer, socket)
@@ -193,18 +195,10 @@ class WebServer():
     def deal_write(self, socket):
         socketfd = self._socket_to_fd(socket)
         util_timer = self.users_timer[socketfd].utiltimer
+        result = (socket, util_timer)
         if self.m_actormodel == 1:
             # reactor
-            self.adjust_timer(util_timer)
-            self.m_thread_pool.append(self.users[socketfd], 1)
-            # ???????
-            while True:
-                if self.users[socketfd].improv == 1:
-                    if self.users[socketfd].timer_flag == 1:
-                        self.deal_timer(util_timer, socket)
-                        self.users[socketfd].timer_flag = 0
-                    self.users[socketfd].improv = 0
-                    break
+            self.m_thread_pool.append(self.users[socketfd], 1, callback=self._callback, result=result)
         else:
             # proactor
             if self.users[socketfd].write():

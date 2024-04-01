@@ -106,10 +106,6 @@ class HttpConnect():
         self.m_check_state = http_config.CHECK_STATE.CHECK_STATE_REQUESTLINE
         # 0表示当前的请求是读，1表示当前的请求是写(reactor模式)
         self.m_state = 0
-        # 0表示不删除定时器，1表示删除定时器(reactor模式)
-        self.timer_flag = 0
-        # 0表示当前读或者写操作未开始，1表示当前读写操作完成(reactor模式)
-        self.improv = 0
 
     def _get_line(self):
         """获取一行的接收数据.
